@@ -40,6 +40,51 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz)
 * LAB1: you may need to define sys_task_info here
 */
 
+uint64 sys_task_info(TaskInfo *info)
+{
+	struct proc *p = curr_proc();
+	if (info == 0)
+		return -1;
+
+	switch (p->state) {
+	case UNUSED:
+		info->status = UnInit;
+		break;
+	case RUNNABLE:
+		info->status = Ready;
+		break;
+	case RUNNING:
+		info->status = Running;
+		break;
+	case ZOMBIE:
+		info->status = Exited;
+		break;
+	default: // USED or SLEEPING
+		info->status = Ready;
+		break;
+	}
+
+	uint64 now_msec = (get_cycle() * 1000) / CPU_FREQ;
+	if (p->started) {
+		p->time = (int)(now_msec - p->start_msec);
+	} else {
+		p->time = 0;
+	}
+	info->time = p->time;
+
+	for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
+		info->syscall_times[i] = p->syscall_times[i];
+	}
+
+	return 0;
+}
+
+
+uint64 sys_getpid()
+{
+	return curr_proc()->pid;
+}
+
 extern char trap_page[];
 
 void syscall()
@@ -53,6 +98,12 @@ void syscall()
 	/*
 	* LAB1: you may need to update syscall counter for task info here
 	*/
+
+	if (id >= 0 && id < MAX_SYSCALL_NUM)
+	{
+		curr_proc()->syscall_times[id]++;
+	}
+
 	switch (id) {
 	case SYS_write:
 		ret = sys_write(args[0], (char *)args[1], args[2]);
@@ -63,12 +114,22 @@ void syscall()
 	case SYS_sched_yield:
 		ret = sys_sched_yield();
 		break;
+
+
+
 	case SYS_gettimeofday:
 		ret = sys_gettimeofday((TimeVal *)args[0], args[1]);
 		break;
-	/*
-	* LAB1: you may need to add SYS_taskinfo case here
-	*/
+	
+	case SYS_getpid:
+		ret = sys_getpid();
+		break;
+
+
+	case SYS_task_info:
+    	ret = sys_task_info((TaskInfo *)args[0]);
+    	break;
+
 	default:
 		ret = -1;
 		errorf("unknown syscall %d", id);

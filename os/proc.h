@@ -2,6 +2,9 @@
 #define PROC_H
 
 #include "types.h"
+//#include "user/stddef.h"
+#define MAX_SYSCALL_NUM 500
+
 
 #define NPROC (16)
 
@@ -35,14 +38,34 @@ struct proc {
 	uint64 kstack; // Virtual address of kernel stack
 	struct trapframe *trapframe; // data page for trampoline.S
 	struct context context; // swtch() here to run process
-	/*
-	* LAB1: you may need to add some new fields here
-	*/
+	
+	unsigned int syscall_times[MAX_SYSCALL_NUM]; // count per syscall ID
+	int time;  
+	uint64 start_msec;
+	int started;
+
+	
 };
 
 /*
 * LAB1: you may need to define struct for TaskInfo here
 */
+
+
+
+typedef enum {
+	UnInit,
+	Ready,
+	Running,
+	Exited,
+} TaskStatus;
+
+typedef struct {
+	TaskStatus status;
+	unsigned int syscall_times[MAX_SYSCALL_NUM];
+	int time;
+} TaskInfo;
+
 
 struct proc *curr_proc();
 void exit(int);
