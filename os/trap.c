@@ -54,9 +54,7 @@ void usertrap()
 		cause &= ~(1ULL << 63);
 		switch (cause) {
 		case SupervisorTimer:
-			//tracef("time interrupt!\n");
 			set_next_timer();
-			//curr_proc()->time += (1000 + TICKS_PER_SEC - 1) / TICKS_PER_SEC;  // ceil
 			yield();
 			break;
 		default:
