@@ -40,6 +40,8 @@ uint64 sys_getpid()
 
 uint64 sys_gettimeofday(TimeVal *val, int _tz)
 {
+	//I added this chunk of code as val is a user virtual address, so the kernel cannot safely write to it directly
+	//so this way we can get the current process and translate the virtual address into a usable address
 	struct proc *p = curr_proc();
 
 	uint64 pa = useraddr(p->pagetable, (uint64)val);
@@ -64,6 +66,7 @@ uint64 sys_task_info(TaskInfo *info)
 {
 	struct proc *p = curr_proc();
 
+	//Info is a user virual address so need to translate it first using the process page table
 	uint64 pa = useraddr(p->pagetable, (uint64)info);
 	if (pa == 0)
 		return -1;
@@ -165,14 +168,23 @@ uint64 sys_mmap(uint64 start, uint64 len, uint64 port, uint64 flag, uint64 fd)
 	return 0;
 }
 
+// sys_munmap:
+// Unmaps a range of virtual addresses from the current process.
+// It first validates the input range, ensures all pages are currently mapped,
+// and then removes the mappings and frees the physical memory.
 uint64 sys_munmap(uint64 start, uint64 len)
 {
 	struct proc *p = curr_proc();
 
+	// If length is 0, nothing to unmap
 	if (len == 0)
 		return 0;
+
+	// Ensure start address is page-aligned
 	if (start % PGSIZE != 0)
 		return -1;
+
+	// Validate address range is within user space and does not overflow
 	if (start >= MAXVA)
 		return -1;
 	if (start + len < start)
@@ -180,15 +192,21 @@ uint64 sys_munmap(uint64 start, uint64 len)
 	if (start + len > MAXVA)
 		return -1;
 
+	// Round range to page boundaries
 	uint64 begin = start;
 	uint64 end = PGROUNDUP(start + len);
 
+	// Ensure all pages in range are currently mapped
+	// If any page is not mapped, return error (no partial unmapping)
 	for (uint64 va = begin; va < end; va += PGSIZE) {
 		if (walkaddr(p->pagetable, va) == 0)
 			return -1;
 	}
 
+	// Remove mappings and free physical pages
 	uvmunmap(p->pagetable, begin, (end - begin) / PGSIZE, 1);
+
+	// Successfully unmapped memory
 	return 0;
 }
 
