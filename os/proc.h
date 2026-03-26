@@ -5,6 +5,7 @@
 #include "types.h"
 
 #define NPROC (16)
+#define MAX_SYSCALL_NUM 500
 
 // Saved registers for kernel context switches.
 struct context {
@@ -27,6 +28,13 @@ struct context {
 };
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum taskstatus { UnInit, Ready, Running, Exited };
+
+typedef struct {
+	enum taskstatus status;
+	int syscall_times[MAX_SYSCALL_NUM];
+	uint64 time;
+} TaskInfo;
 
 // Per-process state
 struct proc {
@@ -38,14 +46,12 @@ struct proc {
 	struct trapframe *trapframe; // data page for trampoline.S
 	struct context context; // swtch() here to run process
 	uint64 max_page;
-	/*
-	* LAB1: you may need to add some new fields here
-	*/
-};
 
-/*
-* LAB1: you may need to define struct for TaskInfo here
-*/
+	uint64 start_msec;
+	uint64 time;
+	int started;
+	unsigned int syscall_times[MAX_SYSCALL_NUM];
+};
 
 struct proc *curr_proc();
 void exit(int);
