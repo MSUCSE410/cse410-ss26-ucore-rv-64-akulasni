@@ -31,10 +31,11 @@ void proc_init(void)
 		p->state = UNUSED;
 		p->kstack = (uint64)kstack[p - pool];
 		p->trapframe = (struct trapframe *)trapframe[p - pool];
-		p->start_msec = 0;
-		p->time = 0;
-		p->started = 0;
+
 		memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		p->time = 0;
+		p->start_msec = 0;
+		p->started = 0;
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = 0;
@@ -66,13 +67,16 @@ found:
 	p->pagetable = 0;
 	p->ustack = 0;
 	p->max_page = 0;
-	p->start_msec = 0;
-	p->time = 0;
-	p->started = 0;
-	memset(p->syscall_times, 0, sizeof(p->syscall_times));
+
 	memset(&p->context, 0, sizeof(p->context));
 	memset((void *)p->kstack, 0, KSTACK_SIZE);
 	memset((void *)p->trapframe, 0, TRAP_PAGE_SIZE);
+
+	memset(p->syscall_times, 0, sizeof(p->syscall_times));
+	p->time = 0;
+	p->start_msec = 0;
+	p->started = 0;
+
 	p->context.ra = (uint64)usertrapret;
 	p->context.sp = p->kstack + KSTACK_SIZE;
 	return p;
@@ -89,10 +93,6 @@ void scheduler(void)
 	for (;;) {
 		for (p = pool; p < &pool[NPROC]; p++) {
 			if (p->state == RUNNABLE) {
-				if (!p->started) {
-					p->started = 1;
-					p->start_msec = (get_cycle() * 1000) / CPU_FREQ;
-				}
 				p->state = RUNNING;
 				current_proc = p;
 				swtch(&idle.context, &p->context);
@@ -101,13 +101,7 @@ void scheduler(void)
 	}
 }
 
-// Switch to scheduler.  Must hold only p->lock
-// and have changed proc->state. Saves and restores
-// intena because intena is a property of this
-// kernel thread, not this CPU. It should
-// be proc->intena and proc->noff, but that would
-// break in the few places where a lock is held but
-// there's no process.
+// Switch to scheduler.
 void sched(void)
 {
 	struct proc *p = curr_proc();

@@ -46,11 +46,17 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz)
 	if (pa == 0)
 		return -1;
 
-	TimeVal *tv = (TimeVal *)pa;
 	uint64 cycle = get_cycle();
+	uint64 now_msec = cycle * 1000 / CPU_FREQ;
+
+	if (!p->started) {
+		p->start_msec = now_msec;
+		p->started = 1;
+	}
+
+	TimeVal *tv = (TimeVal *)pa;
 	tv->sec = cycle / CPU_FREQ;
 	tv->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
-
 	return 0;
 }
 
@@ -84,10 +90,10 @@ uint64 sys_task_info(TaskInfo *info)
 
 	uint64 now_msec = (get_cycle() * 1000) / CPU_FREQ;
 	if (p->started) {
-		p->time = now_msec - p->start_msec;
+		p->time = (int)(now_msec - p->start_msec);
 	} else {
 		p->time = 0;
-	}	
+	}
 	dst->time = p->time;
 
 	for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
@@ -194,9 +200,12 @@ void syscall()
 	int id = trapframe->a7, ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
+	tracef("syscall %d args = [%x, %x, %x, %x, %x, %x]", id, args[0],
+	       args[1], args[2], args[3], args[4], args[5]);
 
-	if (id >= 0 && id < MAX_SYSCALL_NUM)
+	if (id >= 0 && id < MAX_SYSCALL_NUM) {
 		curr_proc()->syscall_times[id]++;
+	}
 
 	switch (id) {
 	case SYS_write:
@@ -226,6 +235,6 @@ void syscall()
 		ret = -1;
 		errorf("unknown syscall %d", id);
 	}
-
 	trapframe->a0 = ret;
+	tracef("syscall ret %d", ret);
 }

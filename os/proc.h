@@ -7,12 +7,9 @@
 #define NPROC (16)
 #define MAX_SYSCALL_NUM 500
 
-// Saved registers for kernel context switches.
 struct context {
 	uint64 ra;
 	uint64 sp;
-
-	// callee-saved
 	uint64 s0;
 	uint64 s1;
 	uint64 s2;
@@ -33,24 +30,23 @@ enum taskstatus { UnInit, Ready, Running, Exited };
 typedef struct {
 	enum taskstatus status;
 	int syscall_times[MAX_SYSCALL_NUM];
-	uint64 time;
+	int time;
 } TaskInfo;
 
-// Per-process state
 struct proc {
-	enum procstate state; // Process state
-	int pid; // Process ID
-	pagetable_t pagetable; // User page table
+	enum procstate state;
+	int pid;
+	pagetable_t pagetable;
 	uint64 ustack;
-	uint64 kstack; // Virtual address of kernel stack
-	struct trapframe *trapframe; // data page for trampoline.S
-	struct context context; // swtch() here to run process
+	uint64 kstack;
+	struct trapframe *trapframe;
+	struct context context;
 	uint64 max_page;
 
-	uint64 start_msec;
-	uint64 time;
-	int started;
 	unsigned int syscall_times[MAX_SYSCALL_NUM];
+	int time;
+	uint64 start_msec;
+	int started;
 };
 
 struct proc *curr_proc();
@@ -60,7 +56,6 @@ void scheduler() __attribute__((noreturn));
 void sched();
 void yield();
 struct proc *allocproc();
-// swtch.S
 void swtch(struct context *, struct context *);
 
 #endif // PROC_H
