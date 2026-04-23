@@ -16,6 +16,7 @@
 #include "proc.h"
 #include "riscv.h"
 #include "types.h"
+
 // there should be one superblock per disk device, but we run with
 // only one device
 struct superblock sb;
@@ -92,7 +93,7 @@ static void bfree(int dev, uint b)
 	brelse(bp);
 }
 
-//The inode table in memory
+// The inode table in memory
 struct {
 	struct inode inode[NINODE];
 } itable;
@@ -100,7 +101,7 @@ struct {
 static struct inode *iget(uint dev, uint inum);
 
 // Allocate an inode on device dev.
-// Mark it as allocated by  giving it type `type`.
+// Mark it as allocated by giving it type `type`.
 // Returns an allocated and referenced inode.
 struct inode *ialloc(uint dev, short type)
 {
@@ -114,9 +115,13 @@ struct inode *ialloc(uint dev, short type)
 		if (dip->type == 0) { // a free inode
 			memset(dip, 0, sizeof(*dip));
 			dip->type = type;
+			dip->nlink = 1;
 			bwrite(bp);
 			brelse(bp);
-			return iget(dev, inum);
+
+			struct inode *ip = iget(dev, inum);
+			ivalid(ip);
+			return ip;
 		}
 		brelse(bp);
 	}
@@ -135,8 +140,8 @@ void iupdate(struct inode *ip)
 	bp = bread(ip->dev, IBLOCK(ip->inum, sb));
 	dip = (struct dinode *)bp->data + ip->inum % IPB;
 	dip->type = ip->type;
+	dip->nlink = ip->nlink;
 	dip->size = ip->size;
-	// LAB4: you may need to update link count here
 	memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
 	bwrite(bp);
 	brelse(bp);
@@ -148,18 +153,17 @@ void iupdate(struct inode *ip)
 static struct inode *iget(uint dev, uint inum)
 {
 	struct inode *ip, *empty;
-	// Is the inode already in the table?
+
 	empty = 0;
 	for (ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++) {
 		if (ip->ref > 0 && ip->dev == dev && ip->inum == inum) {
 			ip->ref++;
 			return ip;
 		}
-		if (empty == 0 && ip->ref == 0) // Remember empty slot.
+		if (empty == 0 && ip->ref == 0)
 			empty = ip;
 	}
 
-	// Recycle an inode entry.
 	if (empty == 0)
 		panic("iget: no inodes");
 
@@ -168,6 +172,11 @@ static struct inode *iget(uint dev, uint inum)
 	ip->inum = inum;
 	ip->ref = 1;
 	ip->valid = 0;
+	ip->type = 0;
+	ip->nlink = 0;
+	ip->size = 0;
+	memset(ip->addrs, 0, sizeof(ip->addrs));
+
 	return ip;
 }
 
@@ -188,8 +197,8 @@ void ivalid(struct inode *ip)
 		bp = bread(ip->dev, IBLOCK(ip->inum, sb));
 		dip = (struct dinode *)bp->data + ip->inum % IPB;
 		ip->type = dip->type;
+		ip->nlink = dip->nlink;
 		ip->size = dip->size;
-		// LAB4: You may need to get lint count here
 		memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
 		brelse(bp);
 		ip->valid = 1;
@@ -203,26 +212,60 @@ void ivalid(struct inode *ip)
 // be recycled.
 // If that was the last reference and the inode has no links
 // to it, free the inode (and its content) on disk.
-// All calls to iput() must be inside a transaction in
-// case it has to free the inode.
 void iput(struct inode *ip)
 {
-	// LAB4: Unmark the condition and change link count variable name (nlink) if needed
-	if (ip->ref == 1 && ip->valid && 0 /*&& ip->nlink == 0*/) {
+	if (ip->ref == 1 && ip->valid && ip->nlink == 0) {
 		// inode has no links and no other references: truncate and free.
 		itrunc(ip);
 		ip->type = 0;
+		ip->nlink = 0;
 		iupdate(ip);
 		ip->valid = 0;
 	}
 	ip->ref--;
 }
 
+/*
+stati:
+Fills a struct stat with metadata from a given inode.
+
+Inputs:
+- ip: pointer to inode (represents a file on disk)
+- st: pointer to struct stat (output structure in kernel memory)
+
+Purpose:
+- Convert internal inode information into a user-facing stat format
+- Used by sys_fstat to return file metadata to user programs
+*/
+void stati(struct inode *ip, struct stat *st)
+{
+	ivalid(ip);
+	// ensure inode data is loaded from disk into memory
+
+	st->dev = ip->dev;
+	// copy device number (which disk/device the file is on)
+
+	st->ino = ip->inum;
+	// copy inode number (unique identifier for file)
+
+	st->mode = (ip->type == T_DIR) ? DIR : FILE;
+	// PROJECT 4:
+	// convert internal inode type → user-visible mode
+	// directory → DIR, regular file → FILE
+
+	st->nlink = ip->nlink;
+	// PROJECT 4:
+	// copy link count (number of hard links pointing to this inode)
+
+	memset(st->pad, 0, sizeof(st->pad));
+	// clear unused padding fields to avoid garbage data in user space
+}
+
 // Inode content
 //
 // The content (data) associated with each inode is stored
 // in blocks on the disk. The first NDIRECT block numbers
-// are listed in ip->addrs[].  The next NINDIRECT blocks are
+// are listed in ip->addrs[]. The next NINDIRECT blocks are
 // listed in block ip->addrs[NDIRECT].
 
 // Return the disk block address of the nth block in inode ip.
@@ -295,6 +338,8 @@ int readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 	uint tot, m;
 	struct buf *bp;
 
+	ivalid(ip);
+
 	if (off > ip->size || off + n < off)
 		return 0;
 	if (off + n > ip->size)
@@ -315,16 +360,14 @@ int readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 }
 
 // Write data to inode.
-// Caller must hold ip->lock.
 // If user_src==1, then src is a user virtual address;
 // otherwise, src is a kernel address.
-// Returns the number of bytes successfully written.
-// If the return value is less than the requested n,
-// there was an error of some kind.
 int writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 {
 	uint tot, m;
 	struct buf *bp;
+
+	ivalid(ip);
 
 	if (off > ip->size || off + n < off)
 		return -1;
@@ -346,11 +389,7 @@ int writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 	if (off > ip->size)
 		ip->size = off;
 
-	// write the i-node back to disk even if the size didn't change
-	// because the loop above might have called bmap() and added a new
-	// block to ip->addrs[].
 	iupdate(ip);
-
 	return tot;
 }
 
@@ -361,6 +400,8 @@ struct inode *dirlookup(struct inode *dp, char *name, uint *poff)
 	uint off, inum;
 	struct dirent de;
 
+	ivalid(dp);
+
 	if (dp->type != T_DIR)
 		panic("dirlookup not DIR");
 
@@ -370,22 +411,25 @@ struct inode *dirlookup(struct inode *dp, char *name, uint *poff)
 		if (de.inum == 0)
 			continue;
 		if (strncmp(name, de.name, DIRSIZ) == 0) {
-			// entry matches path element
 			if (poff)
 				*poff = off;
 			inum = de.inum;
-			return iget(dp->dev, inum);
+			struct inode *ip = iget(dp->dev, inum);
+			ivalid(ip);
+			return ip;
 		}
 	}
 
 	return 0;
 }
 
-//Show the filenames of all files in the directory
+// Show the filenames of all files in the directory
 int dirls(struct inode *dp)
 {
 	uint64 off, count;
 	struct dirent de;
+
+	ivalid(dp);
 
 	if (dp->type != T_DIR)
 		panic("dirlookup not DIR");
@@ -408,29 +452,60 @@ int dirlink(struct inode *dp, char *name, uint inum)
 	int off;
 	struct dirent de;
 	struct inode *ip;
-	// Check that name is not present.
+
+	ivalid(dp);
+
 	if ((ip = dirlookup(dp, name, 0)) != 0) {
 		iput(ip);
 		return -1;
 	}
 
-	// Look for an empty dirent.
 	for (off = 0; off < dp->size; off += sizeof(de)) {
 		if (readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
 			panic("dirlink read");
 		if (de.inum == 0)
 			break;
 	}
+
+	memset(&de, 0, sizeof(de));
 	strncpy(de.name, name, DIRSIZ);
 	de.inum = inum;
+
 	if (writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
 		panic("dirlink");
+
+	iupdate(dp);
 	return 0;
 }
 
-// LAB4: You may want to add dirunlink here
+// Remove a directory entry by name from dp.
+int dirunlink(struct inode *dp, char *name)
+{
+	uint off;
+	struct dirent de;
 
-//Return the inode of the root directory
+	ivalid(dp);
+
+	if (dp->type != T_DIR)
+		panic("dirunlink not DIR");
+
+	for (off = 0; off < dp->size; off += sizeof(de)) {
+		if (readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+			panic("dirunlink read");
+		if (de.inum == 0)
+			continue;
+		if (strncmp(name, de.name, DIRSIZ) == 0) {
+			memset(&de, 0, sizeof(de));
+			if (writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+				panic("dirunlink write");
+			iupdate(dp);
+			return 0;
+		}
+	}
+	return -1;
+}
+
+// Return the inode of the root directory
 struct inode *root_dir()
 {
 	struct inode *r = iget(ROOTDEV, ROOTINO);
@@ -438,17 +513,17 @@ struct inode *root_dir()
 	return r;
 }
 
-//Find the corresponding inode according to the path
+// Find the corresponding inode according to the path
 struct inode *namei(char *path)
 {
 	int skip = 0;
-	// if(path[0] == '.' && path[1] == '/')
-	//     skip = 2;
-	// if (path[0] == '/') {
-	//     skip = 1;
-	// }
 	struct inode *dp = root_dir();
 	if (dp == 0)
 		panic("fs dumped.\n");
-	return dirlookup(dp, path + skip, 0);
+
+	struct inode *ip = dirlookup(dp, path + skip, 0);
+	if (ip != 0) {
+		ivalid(ip);
+	}
+	return ip;
 }

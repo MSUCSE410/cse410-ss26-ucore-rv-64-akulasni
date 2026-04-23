@@ -10,9 +10,10 @@
 #ifndef static_assert
 #define static_assert(a, b)                                                    \
 	do {                                                                   \
-		switch (0)                                                     \
+		switch (0) {                                                   \
 		case 0:                                                        \
 		case (a):;                                                     \
+		}                                                              \
 	} while (0)
 #endif
 
@@ -23,7 +24,7 @@
 
 int nbitmap = FSSIZE / (BSIZE * 8) + 1;
 int ninodeblocks = NINODES / IPB + 1;
-int nmeta; // Number of meta blocks (boot, sb, nlog, inode, bitmap)
+int nmeta;   // Number of meta blocks (boot, sb, inode, bitmap)
 int nblocks; // Number of data blocks
 
 int fsfd;
@@ -69,17 +70,21 @@ int main(int argc, char *argv[])
 	struct dirent de;
 	char buf[BSIZE];
 	struct dinode din;
+
 	static_assert(sizeof(int) == 4, "Integers must be 4 bytes!");
+
 	if (argc < 2) {
 		fprintf(stderr, "Usage: mkfs fs.img files...\n");
 		exit(1);
 	}
 	assert((BSIZE % sizeof(struct dinode)) == 0);
+
 	fsfd = open(argv[1], O_RDWR | O_CREAT | O_TRUNC, 0666);
 	if (fsfd < 0) {
 		perror(argv[1]);
 		exit(1);
 	}
+
 	// 1 fs block = 1 disk sector
 	nmeta = 2 + ninodeblocks + nbitmap;
 	nblocks = FSSIZE - nmeta;
@@ -95,7 +100,7 @@ int main(int argc, char *argv[])
 	       "total %d\n",
 	       nmeta, ninodeblocks, nbitmap, nblocks, FSSIZE);
 
-	freeblock = nmeta; // the first free block that we can allocate
+	freeblock = nmeta;
 
 	for (i = 0; i < FSSIZE; i++)
 		wsect(i, zeroes);
@@ -203,8 +208,8 @@ uint ialloc(ushort type)
 
 	bzero(&din, sizeof(din));
 	din.type = xshort(type);
+	din.nlink = xshort(1);
 	din.size = xint(0);
-	// LAB4: You may want to init link count here
 	winode(inum, &din);
 	return inum;
 }
@@ -213,6 +218,7 @@ void balloc(int used)
 {
 	uchar buf[BSIZE];
 	int i;
+
 	assert(used < BSIZE * 8);
 	bzero(buf, BSIZE);
 	for (i = 0; i < used; i++) {
@@ -249,8 +255,7 @@ void iappend(uint inum, void *xp, int n)
 			rsect(xint(din.addrs[NDIRECT]), (char *)indirect);
 			if (indirect[fbn - NDIRECT] == 0) {
 				indirect[fbn - NDIRECT] = xint(freeblock++);
-				wsect(xint(din.addrs[NDIRECT]),
-				      (char *)indirect);
+				wsect(xint(din.addrs[NDIRECT]), (char *)indirect);
 			}
 			x = xint(indirect[fbn - NDIRECT]);
 		}

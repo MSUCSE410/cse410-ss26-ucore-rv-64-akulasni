@@ -44,9 +44,10 @@ struct superblock {
 // LAB4: Keep it the same as dinode in os/fs.h after you change it
 // On-disk inode structure
 struct dinode {
-	short type; // File type
-	short pad[3];
-	uint size; // Size of file (bytes)
+	short type;   // File type
+	short nlink;  // Link count
+	short pad[2];
+	uint size;    // Size of file (bytes)
 	uint addrs[NDIRECT + 1]; // Data block addresses
 };
 

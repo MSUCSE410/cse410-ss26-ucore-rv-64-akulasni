@@ -3,9 +3,11 @@
 
 #include "riscv.h"
 #include "types.h"
+#include "syscall_ids.h"
 
 #define NPROC (512)
 #define FD_BUFFER_SIZE (16)
+#define BIG_STRIDE (1 << 20)
 
 struct file;
 
@@ -31,20 +33,36 @@ struct context {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+enum taskstatus { UnInit, Ready, Running, Exited };
+
+typedef struct {
+	enum taskstatus status;
+	int syscall_times[MAX_SYSCALL_NUM];
+	int time;
+} TaskInfo;
+
 // Per-process state
 struct proc {
 	enum procstate state; // Process state
 	int pid; // Process ID
 	pagetable_t pagetable; // User page table
-	uint64 ustack; // Virtual address of kernel stack
+	uint64 ustack; // Virtual address of user stack
 	uint64 kstack; // Virtual address of kernel stack
 	struct trapframe *trapframe; // data page for trampoline.S
 	struct context context; // swtch() here to run process
 	uint64 max_page;
 	struct proc *parent; // Parent process
 	uint64 exit_code;
-	struct file *files
-		[FD_BUFFER_SIZE]; //File descriptor table, using to record the files opened by the process
+	struct file *files[FD_BUFFER_SIZE]; // file descriptor table
+
+	int started;
+	uint64 start_msec;
+	int time;
+	int syscall_times[MAX_SYSCALL_NUM];
+
+	long long priority;
+	uint64 stride;
+	uint64 pass;
 };
 
 int cpuid();
@@ -57,12 +75,11 @@ void yield();
 int fork();
 int exec(char *, char **);
 int wait(int, int *);
-void add_task(struct proc *);
-struct proc *pop_task();
 struct proc *allocproc();
 int fdalloc(struct file *);
 int init_stdio(struct proc *);
 int push_argv(struct proc *, char **);
+
 // swtch.S
 void swtch(struct context *, struct context *);
 

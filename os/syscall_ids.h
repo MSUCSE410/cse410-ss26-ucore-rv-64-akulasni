@@ -1,3 +1,6 @@
+#ifndef SYSCALL_IDS_H
+#define SYSCALL_IDS_H
+
 #define SYS_io_setup 0
 #define SYS_io_destroy 1
 #define SYS_io_submit 2
@@ -277,7 +280,10 @@
 #define SYS_io_pgetevents 292
 #define SYS_rseq 293
 #define SYS_kexec_file_load 294
+
 #define SYS_spawn 400
+#define SYS_taskinfo 410
+
 #define SYS_pidfd_send_signal 424
 #define SYS_io_uring_setup 425
 #define SYS_io_uring_enter 426
@@ -293,4 +299,8 @@
 #define SYS_openat2 437
 #define SYS_pidfd_getfd 438
 #define SYS_faccessat2 439
-#define SYS_riscv_flush_icache 244 + 15
+#define SYS_riscv_flush_icache (244 + 15)
+
+#define MAX_SYSCALL_NUM 500
+
+#endif

@@ -13,3 +13,4 @@ kernel_app.ld
 *.sym
 nfs/*.img
 nfs/fs
+cr-scripts/
